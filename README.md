@@ -2,6 +2,8 @@
 
 **"On matche vos prompts avec l'IA qui leur correspond : le système qui unit chaque requête à son LLM idéal."**
 
+> 🌐 Démo en ligne : [sbo42.fr/MatchLLM](https://sbo42.fr/MatchLLM/)
+
 Cette application est un système d'aide à la décision conçu pour orienter chaque utilisateur vers le modèle de langage (LLM) le plus adapté à son besoin spécifique. En exploitant les données massives de la plateforme **Compar:IA**, l'outil ne se contente pas de statistiques globales : il analyse sémantiquement votre requête pour trouver quel modèle a historiquement le mieux performé sur des sujets similaires.
 
 ---
