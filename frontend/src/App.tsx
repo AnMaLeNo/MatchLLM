@@ -85,6 +85,9 @@ function App() {
   const [topsisInputMode, setTopsisInputMode] = useState<'cards' | 'sliders'>('cards');
   const [selectedProfile, setSelectedProfile] = useState<'precision' | 'green' | 'sovereignty'>('precision');
   const [showMatchedQuestions, setShowMatchedQuestions] = useState(true);
+  const [showClassicOptions, setShowClassicOptions] = useState(false);
+  const [useServerThreshold, setUseServerThreshold] = useState(true);
+  const [semanticThreshold, setSemanticThreshold] = useState(0.5);
   // Les sliders vont de 1 à 10
   const [sliderValues, setSliderValues] = useState({ semantic: 5, eco: 5, sovereignty: 5 });
 
@@ -116,6 +119,9 @@ function App() {
 
       if (routingMode === 'classic') {
         endpoint = '/api/evaluer_prompt';
+        if (!useServerThreshold) {
+          body.score_threshold = semanticThreshold;
+        }
       } else {
         endpoint = '/api/meilleur_modele';
         body.matrice_ahp = topsisInputMode === 'cards'
@@ -187,7 +193,6 @@ function App() {
 
         <form onSubmit={handleSubmit} className="input-group">
 
-          {/* TOPSIS Configuration Panel */}
           {routingMode === 'topsis' && (
             <div className="topsis-config-panel">
               <div className="sub-mode-tabs">
@@ -272,6 +277,55 @@ function App() {
                       className="slider-input red-slider"
                     />
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {routingMode === 'classic' && (
+            <div className="classic-options-panel">
+              <button
+                type="button"
+                className={`matched-q-toggle ${showClassicOptions ? 'active' : ''}`}
+                onClick={() => setShowClassicOptions(v => !v)}
+              >
+                <Sliders size={14} /> Options avancées
+              </button>
+
+              {showClassicOptions && (
+                <div className="classic-options-content">
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={useServerThreshold}
+                      onChange={(e) => setUseServerThreshold(e.target.checked)}
+                    />
+                    Utiliser le seuil par défaut du serveur
+                  </label>
+
+                  {!useServerThreshold && (
+                    <div className="slider-group">
+                      <div className="slider-header">
+                        <span className="slider-label" style={{ color: '#38bdf8' }}>
+                          <Sliders size={16} /> Seuil de similarité sémantique
+                        </span>
+                        <span className="slider-value">{semanticThreshold.toFixed(2)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.30"
+                        max="0.80"
+                        step="0.05"
+                        value={semanticThreshold}
+                        onChange={(e) => setSemanticThreshold(parseFloat(e.target.value))}
+                        className="slider-input blue-slider"
+                      />
+                      <p className="classic-options-help">
+                        Plus le seuil est haut, plus les exemples sont proches, mais moins il y aura de données.
+                        Plus il est bas, plus il y aura de données, mais elles seront moins ciblées.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
