@@ -3,10 +3,10 @@ FROM python:3.10-slim
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Optionnel mais recommandé : Précharger le modèle HuggingFace pour accélérer le démarrage du conteneur API
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3')"
+ARG TORCH_VERSION=2.12.0+cpu
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir --extra-index-url "${TORCH_INDEX_URL}" "torch==${TORCH_VERSION}" \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
