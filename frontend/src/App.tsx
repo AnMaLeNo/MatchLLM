@@ -5,6 +5,14 @@ import { Send, Activity, AlertCircle, Cpu, Leaf, Flag, Sliders, LayoutGrid, Awar
 
 type Rating = { label: string; color: string; bgColor: string };
 
+type ConfidenceLevel = 'faible' | 'moyenne' | 'forte';
+
+function getConfidenceRating(level?: ConfidenceLevel): Rating {
+  if (level === 'forte') return { label: 'Confiance forte', color: '#22c55e', bgColor: 'rgba(34,197,94,0.15)' };
+  if (level === 'moyenne') return { label: 'Confiance moyenne', color: '#f59e0b', bgColor: 'rgba(245,158,11,0.15)' };
+  return { label: 'Confiance faible', color: '#ef4444', bgColor: 'rgba(239,68,68,0.15)' };
+}
+
 /** TOPSIS : score entre 0 et 1 */
 function getTopsisRating(score: number): Rating {
   if (score >= 0.55) return { label: 'Bon', color: '#22c55e', bgColor: 'rgba(34,197,94,0.15)' };
@@ -12,7 +20,7 @@ function getTopsisRating(score: number): Rating {
   return { label: 'Mauvais', color: '#ef4444', bgColor: 'rgba(239,68,68,0.15)' };
 }
 
-/** Analyse sémantique : score entre -1 et 1.5 */
+/** Analyse sémantique : score de feedback pondéré, environ -5 à 4.2 avec les poids actuels */
 function getSemanticRating(score: number): Rating {
   if (score >= 0.4) return { label: 'Bon', color: '#22c55e', bgColor: 'rgba(34,197,94,0.15)' };
   if (score >= -0.1) return { label: 'Neutre', color: '#9ca3af', bgColor: 'rgba(156,163,175,0.15)' };
@@ -20,14 +28,32 @@ function getSemanticRating(score: number): Rating {
 }
 import './index.css';
 
+interface AnalyseInfo {
+  score_threshold: number;
+  nb_reactions_similaires: number;
+  nb_modeles_couverts: number;
+  max_volume_support: number;
+  similarite_moyenne: number;
+  support_faible: boolean;
+  avertissement?: string | null;
+}
+
+interface SemanticMetrics {
+  score_semantique: number;
+  volume_support: number;
+  similarite_moyenne?: number;
+  niveau_confiance?: ConfidenceLevel;
+}
+
 interface ApiResponse {
   message?: string;
   prompt: string;
-  recompenses?: any;
+  recompenses?: Record<string, SemanticMetrics>;
   modele_recommande?: string;
   score_topsis?: number;
   classement_complet?: [string, number][];
   questions_par_modele?: Record<string, { question: string; score: number }[]>;
+  infos_analyse?: AnalyseInfo;
 }
 
 const AHP_PROFILES = {
@@ -148,7 +174,7 @@ function App() {
             className={`tab-btn ${routingMode === 'classic' ? 'active' : ''}`}
             onClick={() => { setRoutingMode('classic'); setResult(null); }}
           >
-            <Activity size={18} /> Analyse Clasique
+            <Activity size={18} /> Analyse Classique
           </button>
           <button
             type="button"
@@ -310,8 +336,16 @@ function App() {
               <p className="matched-q-hint">
                 💡 <strong>Comment lire ces résultats ?</strong><br />
                 • <strong>Le score entre parenthèses (ex: 0.850)</strong> indique à quel point ces <strong>questions similaires</strong> se rapprochent de votre prompt <em>(limitées à 3 maximum pour ne pas surcharger l'affichage)</em>.<br />
-                • <strong>Le badge de couleur (Bon, Neutre...)</strong> indique la performance de l'IA, calculée d'après les votes laissés par les utilisateurs sur ces questions spécifiques.
+                • <strong>Le badge de performance</strong> indique le feedback moyen reçu par le modèle sur des demandes proches.<br />
+                • <strong>La confiance</strong> dépend du nombre d'exemples similaires disponibles et de leur proximité sémantique.
               </p>
+            )}
+            {result.infos_analyse && (
+              <div className="matched-q-hint" style={{ borderColor: result.infos_analyse.support_faible ? 'rgba(245,158,11,0.35)' : undefined }}>
+                <strong>Données utilisées :</strong> {result.infos_analyse.nb_reactions_similaires} réaction{result.infos_analyse.nb_reactions_similaires > 1 ? 's' : ''} similaire{result.infos_analyse.nb_reactions_similaires > 1 ? 's' : ''}, {result.infos_analyse.nb_modeles_couverts} modèle{result.infos_analyse.nb_modeles_couverts > 1 ? 's' : ''}, seuil {result.infos_analyse.score_threshold}.<br />
+                Similarité moyenne : {result.infos_analyse.similarite_moyenne.toFixed(3)}.
+                {result.infos_analyse.avertissement && (<><br />⚠️ {result.infos_analyse.avertissement}</>)}
+              </div>
             )}
 
             <div className="ranking-section">
@@ -319,13 +353,14 @@ function App() {
                 {Object.entries(result.recompenses)
                   // Application de la fonction de tri (décroissant) sur le scalaire score_semantique
                   .sort((a, b) => {
-                    const scoreA = (a[1] as any).score_semantique || 0;
-                    const scoreB = (b[1] as any).score_semantique || 0;
+                    const scoreA = a[1].score_semantique || 0;
+                    const scoreB = b[1].score_semantique || 0;
                     return scoreB - scoreA;
                   })
                   .map(([modele, metriques], index) => {
-                    const score = (metriques as any).score_semantique;
-                    const volume = (metriques as any).volume_support;
+                    const score = metriques.score_semantique;
+                    const volume = metriques.volume_support;
+                    const confidence = getConfidenceRating(metriques.niveau_confiance);
 
                     return (
                       <div key={modele} className={`ranking-item ${index === 0 ? 'top-1' : ''}`}>
@@ -334,7 +369,13 @@ function App() {
                           <span>{modele}</span>
                           <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 'normal', marginTop: '4px' }}>
                             Volume de support : {volume} évaluation{volume > 1 ? 's' : ''}
+                            {metriques.similarite_moyenne !== undefined && ` · similarité moyenne ${metriques.similarite_moyenne.toFixed(3)}`}
                           </span>
+                          <span style={{
+                            alignSelf: 'flex-start', fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px',
+                            borderRadius: '20px', color: confidence.color,
+                            background: confidence.bgColor, marginTop: '6px'
+                          }}>{confidence.label}</span>
                           {showMatchedQuestions && result.questions_par_modele?.[modele] && result.questions_par_modele[modele].length > 0 && (
                             <ul className="inline-matched-questions">
                               {result.questions_par_modele[modele].map((entry, qi) => (

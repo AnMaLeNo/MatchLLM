@@ -89,10 +89,21 @@ def modeliser_recompense_semantique(
         denominateur_reg = metriques["denominateur_somme_poids"] + alpha
         
         score_hat_s = numerateur_reg / denominateur_reg
+        volume_support = metriques["volume_support"]
+        similarite_moyenne = metriques["denominateur_somme_poids"] / volume_support if volume_support > 0 else 0.0
+
+        if volume_support >= 10 and similarite_moyenne >= 0.55:
+            niveau_confiance = "forte"
+        elif volume_support >= 3 and similarite_moyenne >= 0.5:
+            niveau_confiance = "moyenne"
+        else:
+            niveau_confiance = "faible"
         
         resultats_analytiques[modele_m] = {
             "score_semantique": round(score_hat_s, 4),
-            "volume_support": metriques["volume_support"]
+            "volume_support": volume_support,
+            "similarite_moyenne": round(similarite_moyenne, 4),
+            "niveau_confiance": niveau_confiance
         }
 
     return resultats_analytiques

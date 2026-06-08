@@ -14,6 +14,7 @@ services:
       - "8000:8000"
     environment:
       - QDRANT_URL=http://qdrant:6333
+      - SEMANTIC_SCORE_THRESHOLD=${SEMANTIC_SCORE_THRESHOLD:-0.5}
     volumes:
       # Montage des données utiles pour permettre la ré-indexation sans rebuild
       - ./backend/database:/app/database
