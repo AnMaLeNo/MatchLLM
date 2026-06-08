@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any, List
 import json
 import numpy as np
+import os
 
 # Import de tes propres fonctions
 from qdrant_tools import rechercher_reactions_similaires
@@ -19,6 +20,47 @@ from qdrant_client.models import Distance
 ml_models = {}
 qdrant_db = {}
 app_data = {}
+
+
+def seuil_semantique_defaut() -> float:
+    valeur = os.getenv("SEMANTIC_SCORE_THRESHOLD", "0.5")
+    try:
+        return float(valeur)
+    except ValueError:
+        return 0.5
+
+
+def infos_analyse(resultats: List[Dict[str, Any]], seuil: float) -> Dict[str, Any]:
+    volumes = {}
+    scores = []
+    for r in resultats:
+        modele = r.get("refers_to_model")
+        if modele:
+            volumes[modele] = volumes.get(modele, 0) + 1
+        if r.get("score") is not None:
+            scores.append(r["score"])
+
+    max_support = max(volumes.values()) if volumes else 0
+    support_faible = max_support < 3
+    similarite_moyenne = round(sum(scores) / len(scores), 4) if scores else 0.0
+    avertissement = None
+
+    if support_faible:
+        avertissement = (
+            "Peu de données similaires ont été trouvées. Le résultat est indicatif : "
+            "cela peut venir du seuil de similarité ou simplement d'une base de données trop limitée."
+        )
+
+    return {
+        "score_threshold": seuil,
+        "nb_reactions_similaires": len(resultats),
+        "nb_modeles_couverts": len(volumes),
+        "max_volume_support": max_support,
+        "similarite_moyenne": similarite_moyenne,
+        "support_faible": support_faible,
+        "avertissement": avertissement,
+    }
+
 
 def index_corpus(client, dim_vecteur):
     colonnes_payload_cibles = [
@@ -58,7 +100,6 @@ async def lifespan(app: FastAPI):
     print("⏳ Démarrage du serveur : Chargement du modèle SentenceTransformer...")
     ml_models["encoder"] = SentenceTransformer("BAAI/bge-m3")
     
-    import os
     qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
     print(f"⏳ Démarrage du serveur : Connexion à Qdrant sur {qdrant_url}...")
     qdrant_db["client"] = QdrantClient(url=qdrant_url)
@@ -88,15 +129,15 @@ app = FastAPI(
 # Définit la structure exacte attendue en entrée (le JSON que le front-end enverra)
 class PromptRequest(BaseModel):
     prompt: str
-    limit: int = 1000 
-    score_threshold: float = 0.65
+    limit: int = 1000
+    score_threshold: float | None = None
 
 class RoutageRequest(BaseModel):
     prompt: str
     # Matrice AHP 3x3 par défaut (Sémantique, Énergie, Souveraineté)
-    matrice_ahp: List[List[float]] 
+    matrice_ahp: List[List[float]]
     limit: int = 1000
-    score_threshold: float = 0.65
+    score_threshold: float | None = None
 
 # --- Endpoints ---
 @app.post("/api/evaluer_prompt")
@@ -110,6 +151,7 @@ async def evaluer_prompt(request: PromptRequest):
 
         # 1. Encodage du prompt
         vecteur = model.encode(request.prompt, convert_to_tensor=False).tolist()
+        seuil = request.score_threshold if request.score_threshold is not None else seuil_semantique_defaut()
 
         # 2. Recherche Vectorielle (Qdrant)
         resultats = rechercher_reactions_similaires(
@@ -117,7 +159,7 @@ async def evaluer_prompt(request: PromptRequest):
             vecteur_requete=vecteur,
             collection_name="index_reactions_question_content",
             limit=request.limit,
-            score_threshold=request.score_threshold
+            score_threshold=seuil
         )
 
         # 3. Groupement des question_content + score par modèle (avant agrégation)
@@ -139,7 +181,8 @@ async def evaluer_prompt(request: PromptRequest):
                 "message": "Aucune similarité trouvée.",
                 "prompt": request.prompt,
                 "recompenses": {},
-                "questions_par_modele": {}
+                "questions_par_modele": {},
+                "infos_analyse": infos_analyse(resultats, seuil)
             }
 
         analyse = modeliser_recompense_semantique(resultats)
@@ -149,7 +192,8 @@ async def evaluer_prompt(request: PromptRequest):
             "message": "Analyse réussie",
             "prompt": request.prompt,
             "recompenses": analyse,
-            "questions_par_modele": questions_par_modele
+            "questions_par_modele": questions_par_modele,
+            "infos_analyse": infos_analyse(resultats, seuil)
         }
 
     except Exception as e:
@@ -169,12 +213,13 @@ async def obtenir_meilleur_modele(request: RoutageRequest):
 
         # 1. Encodage et Recherche Vectorielle
         vecteur = model.encode(request.prompt, convert_to_tensor=False).tolist()
+        seuil = request.score_threshold if request.score_threshold is not None else seuil_semantique_defaut()
         resultats = rechercher_reactions_similaires(
             client=client,
             vecteur_requete=vecteur,
             collection_name="index_reactions_question_content", # ou _comment selon ton choix
             limit=request.limit,
-            score_threshold=request.score_threshold
+            score_threshold=seuil
         )
 
         if not resultats:
@@ -184,7 +229,8 @@ async def obtenir_meilleur_modele(request: RoutageRequest):
                 "modele_recommande": None,
                 "score_topsis": None,
                 "classement_complet": [],
-                "questions_par_modele": {}
+                "questions_par_modele": {},
+                "infos_analyse": infos_analyse(resultats, seuil)
             }
 
         # 2. Groupement des question_content + score par modèle (avant agrégation)
@@ -233,7 +279,8 @@ async def obtenir_meilleur_modele(request: RoutageRequest):
             "modele_recommande": gagnant[0],
             "score_topsis": gagnant[1],
             "classement_complet": classement_final,
-            "questions_par_modele": questions_par_modele
+            "questions_par_modele": questions_par_modele,
+            "infos_analyse": infos_analyse(resultats, seuil)
         }
 
     except ValueError as ve:
