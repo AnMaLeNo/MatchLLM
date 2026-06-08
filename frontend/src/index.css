@@ -312,6 +312,42 @@ textarea::placeholder {
   margin-bottom: 1.5rem;
 }
 
+.classic-options-panel {
+  margin-bottom: 1rem;
+}
+
+.classic-options-content {
+  margin-top: 0.8rem;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+  animation: slideUp 0.25s ease forwards;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.checkbox-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: #38bdf8;
+}
+
+.classic-options-help {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 /* Tabs Modes */
 .mode-tabs {
   display: flex;
