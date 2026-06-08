@@ -560,6 +560,39 @@ textarea::placeholder {
   flex: 1;
 }
 
+.compact-winner-card {
+  align-items: flex-start;
+}
+
+.metric-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+.metric-chip {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+}
+
+.compact-info-box {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+.topsis-detail-line {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: normal;
+  margin-top: 4px;
+}
+
 .winner-title {
   color: var(--text-secondary);
   text-transform: uppercase;

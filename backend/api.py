@@ -10,7 +10,7 @@ import os
 
 # Import de tes propres fonctions
 from qdrant_tools import rechercher_reactions_similaires
-from analyse import modeliser_recompense_semantique, optimiser_routage_topsis
+from analyse import modeliser_recompense_semantique, optimiser_routage_topsis, deriver_poids_ahp
 
 from qdrant_tools import rechercher_reactions_similaires, indexer_corpus_generique
 from qdrant_client.models import Distance
@@ -60,6 +60,60 @@ def infos_analyse(resultats: List[Dict[str, Any]], seuil: float) -> Dict[str, An
         "support_faible": support_faible,
         "avertissement": avertissement,
     }
+
+
+def calculer_modeles_exclus(
+    resultats_semantiques: Dict[str, Dict[str, Any]],
+    metriques_physiques: Dict[str, Dict[str, Any]],
+    noms_criteres: List[str]
+) -> Dict[str, Any]:
+    exclus = []
+    raisons = {"metriques_physiques_manquantes": 0, "criteres_incomplets": 0}
+
+    for modele, donnees_semantiques in resultats_semantiques.items():
+        donnees_physiques = metriques_physiques.get(modele)
+        if donnees_physiques is None:
+            raisons["metriques_physiques_manquantes"] += 1
+            exclus.append({"modele": modele, "raison": "metriques_physiques_manquantes"})
+            continue
+
+        donnees_fusionnees = {**donnees_semantiques, **donnees_physiques}
+        criteres_manquants = [c for c in noms_criteres if donnees_fusionnees.get(c) is None]
+        if criteres_manquants:
+            raisons["criteres_incomplets"] += 1
+            exclus.append({
+                "modele": modele,
+                "raison": "criteres_incomplets",
+                "criteres_manquants": criteres_manquants
+            })
+
+    return {
+        "total": len(exclus),
+        "raisons": {cle: valeur for cle, valeur in raisons.items() if valeur > 0},
+        "liste": exclus
+    }
+
+
+def detailler_classement_topsis(
+    classement: List[Any],
+    resultats_semantiques: Dict[str, Dict[str, Any]],
+    metriques_physiques: Dict[str, Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    detail = []
+    for modele, score_topsis in classement:
+        donnees_semantiques = resultats_semantiques.get(modele, {})
+        donnees_physiques = metriques_physiques.get(modele, {})
+        detail.append({
+            "modele": modele,
+            "score_topsis": score_topsis,
+            "score_semantique": donnees_semantiques.get("score_semantique"),
+            "volume_support": donnees_semantiques.get("volume_support"),
+            "similarite_moyenne": donnees_semantiques.get("similarite_moyenne"),
+            "niveau_confiance": donnees_semantiques.get("niveau_confiance"),
+            "kwh_token": donnees_physiques.get("kwh/token"),
+            "score_souverainete": donnees_physiques.get("score_souverainete"),
+        })
+    return detail
 
 
 def index_corpus(client, dim_vecteur):
@@ -229,7 +283,10 @@ async def obtenir_meilleur_modele(request: RoutageRequest):
                 "modele_recommande": None,
                 "score_topsis": None,
                 "classement_complet": [],
+                "classement_detaille": [],
                 "questions_par_modele": {},
+                "poids_criteres": {},
+                "modeles_exclus": {"total": 0, "raisons": {}, "liste": []},
                 "infos_analyse": infos_analyse(resultats, seuil)
             }
 
@@ -255,6 +312,17 @@ async def obtenir_meilleur_modele(request: RoutageRequest):
         
         # Définition stricte des critères utilisés dans cet ordre précis
         noms_criteres = ["score_semantique", "kwh/token", "score_souverainete"]
+        libelles_criteres = ["performance_semantique", "energie", "souverainete"]
+        poids_ahp = deriver_poids_ahp(matrice_ahp_np)
+        poids_criteres = {
+            libelle: round(float(poids_ahp[i]), 4)
+            for i, libelle in enumerate(libelles_criteres)
+        }
+        modeles_exclus = calculer_modeles_exclus(
+            resultats_semantiques=resultats_phase_2,
+            metriques_physiques=metriques_physiques,
+            noms_criteres=noms_criteres
+        )
         
         # Directions : 1 (Maximiser sémantique), -1 (Minimiser énergie), 1 (Maximiser souveraineté)
         vecteur_directions = [1, -1, 1]
@@ -273,13 +341,21 @@ async def obtenir_meilleur_modele(request: RoutageRequest):
 
         # Le grand gagnant est le premier de la liste
         gagnant = classement_final[0]
+        classement_detaille = detailler_classement_topsis(
+            classement=classement_final,
+            resultats_semantiques=resultats_phase_2,
+            metriques_physiques=metriques_physiques
+        )
 
         return {
             "prompt": request.prompt,
             "modele_recommande": gagnant[0],
             "score_topsis": gagnant[1],
             "classement_complet": classement_final,
+            "classement_detaille": classement_detaille,
             "questions_par_modele": questions_par_modele,
+            "poids_criteres": poids_criteres,
+            "modeles_exclus": modeles_exclus,
             "infos_analyse": infos_analyse(resultats, seuil)
         }
 
